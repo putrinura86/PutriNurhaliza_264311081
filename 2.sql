@@ -6,9 +6,9 @@ INSERT INTO zona_lahan (id_zona, nama_zona, luas_lahan, jenis_tanaman) VALUES
 
 ... Tabel pengguna ...
 INSERT INTO pengguna (id_pengguna, nama_pengguna, username, password, role, email, no_telp) VALUES
-(1, 'Budi Santoso', 'budi', 'hash_dummy_1', 'Petugas_Lapangan', 'budi@example.com', '081234567890'),
-(2, 'Sari Wulandari', 'sari', 'hash_dummy_2', 'Koordinator', 'sari@example.com', '081234567891'),
-(3, 'Anto Prasetyo', 'anto', 'hash_dummy_3', 'Operator', 'anto@example.com', '081234567892');
+(1, 'Meisa Putri', 'meisa', 'hash_dummy_1', 'Petugas_Lapangan', 'meisa@example.com', '081234567890'),
+(2, 'Putri Zahrani', 'putri', 'hash_dummy_2', 'Koordinator', 'putri@example.com', '081234567891'),
+(3, 'Alifa Nurhayati', 'alifa', 'hash_dummy_3', 'Operator', 'alifa@example.com', '081234567892');
 
 ... Tabel laporan ...
 INSERT INTO laporan (id_laporan, id_zona, id_pengguna, tanggal_laporan, ringkasan, rekomendasi) VALUES
