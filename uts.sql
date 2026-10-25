@@ -1,42 +1,85 @@
-USE smart_agiculture_db;
+-- =====================================================================
+-- PENAMBAHAN PROSES BISNIS: NOTIFIKASI PERINGATAN
+-- =====================================================================
 
--- 1. GANGGUAN_SENSOR
---    Mencatat setiap gangguan sensor (data tidak masuk, data anomali, sensor mati)
---    yang terdeteksi, beserta operator yang memverifikasinya.
-CREATE TABLE gangguan_sensor (
-    id_gangguan      INT AUTO_INCREMENT PRIMARY KEY,
-    id_sensor        INT NOT NULL,
-    id_operator      INT NOT NULL,
-    waktu_deteksi    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    jenis_gangguan   ENUM('Data Tidak Masuk','Data Anomali','Sensor Mati') NOT NULL,
-    status_gangguan  ENUM('Terdeteksi','Diverifikasi','Ditangani','Selesai') NOT NULL DEFAULT 'Terdeteksi',
-    CONSTRAINT fk_gangguan_sensor
-        FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor)
-        ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_gangguan_operator
-        FOREIGN KEY (id_operator) REFERENCES pengguna(id_pengguna)
-        ON UPDATE CASCADE ON DELETE RESTRICT
+-- ---------------------------------------------------------------------
+-- A. ALASAN BISNIS
+-- ---------------------------------------------------------------------
+-- Sebelumnya peringatan hanya tersimpan di database, tanpa bukti siapa
+-- yang sudah diberi tahu dan siapa yang sudah membacanya. Proses baru:
+-- setiap peringatan dikirim ke satu atau banyak pengguna, dan sistem
+-- mencatat saluran, waktu kirim, serta status baca tiap penerima.
+-- Relasi PERINGATAN dan PENGGUNA menjadi M:N, dipecah lewat tabel
+-- NOTIFIKASI_PERINGATAN.
+
+-- ---------------------------------------------------------------------
+-- B. ANALISIS NORMALISASI
+-- ---------------------------------------------------------------------
+-- Rancangan awal (semua di tabel peringatan):
+--   peringatan(id_peringatan, id_pengukuran, waktu_peringatan,
+--              status_peringatan, penerima, saluran_kirim, waktu_baca)
+--   contoh: (1, 10, ..., 'Diproses', 'budi, sari', 'WA, Email', ...)
+--
+-- 1NF : TIDAK terpenuhi. Kolom penerima dan saluran_kirim berisi banyak
+--       nilai dalam satu sel. Solusi: satu baris per pasangan
+--       (peringatan, penerima), PK gabungan (id_peringatan, id_pengguna).
+--   notifikasi(id_peringatan, id_pengguna, nama_pengguna, role,
+--              saluran, waktu_kirim, status_baca, waktu_baca)
+--
+-- 2NF : TIDAK terpenuhi. id_pengguna -> nama_pengguna, role adalah
+--       ketergantungan parsial terhadap PK gabungan. Solusi: atribut
+--       itu dipisahkan ke tabel pengguna (sudah ada).
+--   notifikasi_peringatan(id_peringatan, id_pengguna, saluran,
+--                         waktu_kirim, status_baca, waktu_baca)
+--
+-- 3NF : TERPENUHI. Tidak ada ketergantungan transitif antar atribut
+--       non-key; semuanya bergantung langsung pada PK gabungan.
+--
+-- Relasi: PENGGUNA (1) --- (N) NOTIFIKASI_PERINGATAN (N) --- (1) PERINGATAN
+
+-- ---------------------------------------------------------------------
+-- C. DDL
+-- ---------------------------------------------------------------------
+-- Tabel pengguna dan peringatan sudah ada pada skema sebelumnya.
+
+CREATE TABLE notifikasi_peringatan (
+  id_peringatan  INT         NOT NULL,
+  id_pengguna    INT         NOT NULL,
+  saluran        VARCHAR(20) NOT NULL DEFAULT 'Aplikasi',
+  waktu_kirim    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status_baca    VARCHAR(20) NOT NULL DEFAULT 'Terkirim',
+  waktu_baca     DATETIME    NULL,
+
+  PRIMARY KEY (id_peringatan, id_pengguna),
+  KEY idx_notif_pengguna (id_pengguna, status_baca),
+
+  CONSTRAINT fk_notif_peringatan FOREIGN KEY (id_peringatan)
+    REFERENCES peringatan (id_peringatan)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_notif_pengguna FOREIGN KEY (id_pengguna)
+    REFERENCES pengguna (id_pengguna)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+
+  CONSTRAINT chk_notif_saluran
+    CHECK (saluran IN ('Aplikasi','Email','WhatsApp','SMS')),
+  CONSTRAINT chk_notif_status_baca
+    CHECK (status_baca IN ('Terkirim','Dibaca','Gagal')),
+  CONSTRAINT chk_notif_waktu_baca CHECK (
+    (status_baca = 'Dibaca' AND waktu_baca IS NOT NULL
+       AND waktu_baca >= waktu_kirim)
+    OR (status_baca <> 'Dibaca' AND waktu_baca IS NULL)
+  )
 );
 
--- 2. PENANGANAN_GANGGUAN (entitas lemah: PK gabungan id_gangguan + no_urut)
---    Satu gangguan dapat ditangani lebih dari satu kali oleh petugas lapangan.
-CREATE TABLE penanganan_gangguan (
-    id_gangguan          INT NOT NULL,
-    no_urut              INT NOT NULL,
-    id_petugas           INT NOT NULL,
-    tanggal_penanganan   DATE NOT NULL,
-    tindakan             VARCHAR(150) NOT NULL,
-    keterangan           TEXT NULL,
-    PRIMARY KEY (id_gangguan, no_urut),
-    CONSTRAINT fk_penanganan_gangguan
-        FOREIGN KEY (id_gangguan) REFERENCES gangguan_sensor(id_gangguan)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT fk_penanganan_petugas
-        FOREIGN KEY (id_petugas) REFERENCES pengguna(id_pengguna)
-        ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT chk_penanganan_no_urut CHECK (no_urut > 0)
-);
+-- ---------------------------------------------------------------------
+-- D. DATA CONTOH
+-- ---------------------------------------------------------------------
+-- Mengasumsikan peringatan id 1-2 dan pengguna id 1-3 sudah ada.
 
--- 3. INDEX untuk pencarian gangguan yang belum selesai dan riwayat gangguan per sensor
-CREATE INDEX idx_gangguan_status      ON gangguan_sensor (status_gangguan, jenis_gangguan);
-CREATE INDEX idx_gangguan_sensor_waktu ON gangguan_sensor (id_sensor, waktu_deteksi);
+INSERT INTO notifikasi_peringatan
+  (id_peringatan, id_pengguna, saluran, waktu_kirim, status_baca, waktu_baca) VALUES
+(1, 1, 'WhatsApp', '2026-10-24 08:02:00', 'Dibaca',   '2026-10-24 08:10:00'),
+(1, 2, 'Aplikasi', '2026-10-24 08:02:00', 'Dibaca',   '2026-10-24 08:30:00'),
+(2, 1, 'WhatsApp', '2026-10-24 09:17:00', 'Terkirim', NULL),
+(2, 2, 'Email',    '2026-10-24 09:17:00', 'Gagal',    NULL),
+(2, 3, 'Aplikasi', '2026-10-24 09:17:00', 'Terkirim', NULL);
